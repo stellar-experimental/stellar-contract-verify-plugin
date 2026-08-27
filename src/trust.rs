@@ -10,7 +10,7 @@ use std::io::{IsTerminal, Write};
 use regex::Regex;
 
 use crate::error::Error;
-use crate::print::Print;
+use crate::print::{sanitize, Print};
 
 /// What kind of source is being trust-checked. Affects the default-trust
 /// decision and shapes the prompt + error wording.
@@ -79,7 +79,8 @@ pub fn require_trust(
         TrustDecision::Trusted => Ok(()),
         TrustDecision::Overridden => {
             print.warnln(format!(
-                "Trusting {kind} {value} because --trust was passed"
+                "Trusting {kind} {} because --trust was passed",
+                sanitize(value)
             ));
             Ok(())
         }
@@ -87,7 +88,7 @@ pub fn require_trust(
             if !std::io::stdin().is_terminal() {
                 return Err(Error::TrustRequired {
                     kind,
-                    value: value.to_string(),
+                    value: sanitize(value),
                 });
             }
             confirm_interactively(kind, value)
@@ -99,6 +100,7 @@ fn confirm_interactively(kind: TrustKind, value: &str) -> Result<(), Error> {
     // Trust prompts must be visible even under `--quiet` so the user can see
     // what they're agreeing to. Use a dedicated Print that ignores the flag.
     let print = Print::new(false);
+    let value = sanitize(value);
     let context = match kind {
         TrustKind::Bldimg => format!(
             "Image {value} is not in the default trust list (only docker.io/stellar/stellar-cli is trusted by default)."

@@ -1,5 +1,11 @@
 # stellar-contract-verify
 
+> [!IMPORTANT]
+> 
+> This project should not be used in production. It's just meant for 
+> experimentation and testing. It is not maintained and may be removed at any 
+> time.
+
 A [Stellar CLI plugin](https://developers.stellar.org/docs/tools/cli/plugins)
 that verifies a Soroban contract's WASM reproduces from the build metadata it
 records, per [SEP-58](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0058.md).
@@ -29,7 +35,8 @@ stellar-contract-verify --wasm ./my_contract.wasm
 
 ## Requirements
 
-- `docker` on your `PATH` (the rebuild runs in the recorded, digest-pinned image).
+- A container engine on your `PATH` — `docker` (default) or Apple's `container`
+  CLI (`--engine apple-container`) — to run the recorded, digest-pinned image.
 - The `stellar` CLI on your `PATH` when using `--id` / `--wasm-hash` (the WASM
   fetch is delegated to `stellar contract fetch`). Not needed for local `--wasm`.
 
@@ -56,6 +63,10 @@ Options:
                                  their paths (useful for debugging a byte mismatch)
       --quiet                    Only print the final verdict
   -v, --verbose                  Print the container command and stream build output
+      --engine <ENGINE>          Container engine: docker (default) or apple-container
+  -d, --docker-host <HOST>       Override the docker host (docker engine only)
+      --cpus <CPUS>              Limit CPUs for the build container (whole number)
+      --memory <MEMORY>          Limit memory for the build container, e.g. 2g / 512m
 ```
 
 On success it prints `Verified: <n> bytes, sha256=<hash>` and exits `0`; on a
@@ -90,10 +101,11 @@ scope and known gaps:
 
 - **In scope:** local `--wasm` and network `--id` / `--wasm-hash` inputs (the
   latter via `stellar contract fetch`); SEP-58 metadata extraction; trust gating;
-  source materialization (tar.gz / zip, http(s) or local); rebuild via the
-  `docker` CLI; rebuilt-WASM byte comparison.
-- **Not yet:** container engines other than `docker` (`--engine`, `--docker-host`,
-  resource limits); build-container interruption cleanup.
+  source materialization (tar.gz / zip, http(s) or local); rebuild via docker or
+  Apple's `container` engine, with `--docker-host` and `--cpus`/`--memory`
+  limits; rebuilt-WASM byte comparison.
+- **Not yet:** build-container interruption cleanup (a rebuild interrupted with
+  Ctrl-C may leave the container running).
 
 ### Future direction
 

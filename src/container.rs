@@ -1,63 +1,66 @@
-//! Docker-based rebuild and the pure logic around it.
+//! Container rebuild and the pure logic around it.
 //!
 //! A lean, synchronous stand-in for the CLI's `container::shared` +
-//! `verifiable::run_in_container`: it shells out to the `docker` binary only (the
-//! multi-engine abstraction is deferred). `build_container_command`,
+//! `verifiable::run_in_container`. The engine (docker or Apple's `container`) is
+//! selected via [`crate::engine::ContainerArgs`]. `build_container_command`,
 //! `collect_release_wasms`, and `find_rebuilt_wasm` are ported verbatim from
 //! `contract verify` — they're pure and carry the security-relevant behavior
 //! (metadata replay, pre-built-artifact exclusion).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use walkdir::WalkDir;
 
+use crate::engine::{ContainerArgs, RunArgs};
 use crate::error::Error;
 use crate::meta::ExtractedMetadata;
-use crate::print::Print;
-
-/// The engine binary. The MVP targets docker only.
-const ENGINE: &str = "docker";
+use crate::print::{sanitize, Print};
 
 /// Pull the recorded build image so the rebuild runs against exactly the pinned
 /// digest. Output is streamed to the terminal (unless quiet) so the user sees
 /// pull progress.
-pub fn pull_image(image_ref: &str, print: &Print) -> Result<(), Error> {
-    print.infoln(format!("Pulling image {image_ref}"));
+pub fn pull_image(image_ref: &str, args: &ContainerArgs, print: &Print) -> Result<(), Error> {
+    print.infoln(format!("Pulling image {}", sanitize(image_ref)));
     let (stdout, stderr) = if print.quiet {
         (Stdio::null(), Stdio::null())
     } else {
         (Stdio::inherit(), Stdio::inherit())
     };
-    let status = Command::new(ENGINE)
-        .args(["pull", image_ref])
+    let status = args
+        .pull_command(image_ref)
         .stdout(stdout)
         .stderr(stderr)
         .status()
-        .map_err(Error::DockerInvoke)?;
+        .map_err(|e| args.invoke_error(e))?;
     if status.success() {
         Ok(())
     } else {
-        Err(Error::DockerPull {
+        Err(Error::PullFailed {
             image: image_ref.to_string(),
         })
     }
 }
 
-/// Run `cmd` in a throwaway `docker run --rm` container (optionally overriding
-/// the entrypoint) and return its captured stdout. Only stdout is collected;
-/// stderr and the exit status are ignored, matching how every probe treats a
-/// missing subcommand or unexpected output as "unsupported".
-fn run_probe(image_ref: &str, entrypoint: Option<&str>, cmd: &[&str]) -> Result<String, Error> {
-    let mut command = Command::new(ENGINE);
+/// Run `cmd` in a throwaway `run --rm` container (optionally overriding the
+/// entrypoint) and return its captured stdout. Only stdout is collected; stderr
+/// and the exit status are ignored, matching how every probe treats a missing
+/// subcommand or unexpected output as "unsupported".
+fn run_probe(
+    image_ref: &str,
+    args: &ContainerArgs,
+    entrypoint: Option<&str>,
+    cmd: &[&str],
+) -> Result<String, Error> {
+    let mut command = args.base_command();
     command.args(["run", "--rm"]);
     if let Some(entrypoint) = entrypoint {
         command.args(["--entrypoint", entrypoint]);
     }
     command.arg(image_ref);
     command.args(cmd);
-    let output = command.output().map_err(Error::DockerInvoke)?;
+    let output = command.output().map_err(|e| args.invoke_error(e))?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
@@ -66,8 +69,8 @@ fn run_probe(image_ref: &str, entrypoint: Option<&str>, cmd: &[&str]) -> Result<
 /// would fail the build. Rather than map versions, ask the container's own
 /// `contract build --help` whether the flag exists. On any probe failure returns
 /// false — the conservative assumption that the flag is absent.
-pub fn probe_supports_locked(image_ref: &str, print: &Print) -> bool {
-    match run_probe(image_ref, None, &["contract", "build", "--help"]) {
+pub fn probe_supports_locked(image_ref: &str, args: &ContainerArgs, print: &Print) -> bool {
+    match run_probe(image_ref, args, None, &["contract", "build", "--help"]) {
         Ok(help) => help.contains("--locked"),
         Err(e) => {
             print.warnln(format!(
@@ -83,20 +86,29 @@ pub fn probe_supports_locked(image_ref: &str, print: &Print) -> bool {
 /// source could make rustup switch toolchains mid-build, defeating the
 /// digest-pinned image. Returns `None` on any failure (e.g. an image without
 /// rustup), so the build proceeds without the pin rather than failing.
-fn probe_active_toolchain(image_ref: &str) -> Option<String> {
-    let stdout = run_probe(image_ref, Some("rustup"), &["show", "active-toolchain"]).ok()?;
+fn probe_active_toolchain(image_ref: &str, args: &ContainerArgs) -> Option<String> {
+    let stdout = run_probe(
+        image_ref,
+        args,
+        Some("rustup"),
+        &["show", "active-toolchain"],
+    )
+    .ok()?;
     stdout.split_whitespace().next().map(str::to_string)
 }
 
 /// Rebuild `container_cmd` (a `contract build …` argv) in `image_ref`, with the
-/// materialized source bind-mounted at `/source`. `env` entries become docker
-/// `-e KEY=VALUE` flags. Also pins `RUSTUP_TOOLCHAIN` to the image's active
-/// toolchain unless the caller already set it.
+/// materialized source bind-mounted at `/source`. `env` entries become `-e
+/// KEY=VALUE` flags; `run_args` adds resource limits. Also pins
+/// `RUSTUP_TOOLCHAIN` to the image's active toolchain unless already set.
+#[allow(clippy::too_many_arguments)]
 pub fn run_in_container(
     image_ref: &str,
     source_root: &Path,
     container_cmd: &[String],
     env: &[String],
+    args: &ContainerArgs,
+    run_args: &RunArgs,
     print: &Print,
     verbose: bool,
 ) -> Result<(), Error> {
@@ -104,35 +116,50 @@ pub fn run_in_container(
 
     let mut env = env.to_vec();
     if !env.iter().any(|e| e.starts_with("RUSTUP_TOOLCHAIN=")) {
-        if let Some(toolchain) = probe_active_toolchain(image_ref) {
+        if let Some(toolchain) = probe_active_toolchain(image_ref, args) {
             env.push(format!("RUSTUP_TOOLCHAIN={toolchain}"));
         }
     }
 
-    // A copy-pasteable reproduce line, rendered against the same engine binary.
-    let mut env_flags = String::new();
-    for e in &env {
-        env_flags.push_str(" -e ");
-        env_flags.push_str(&shell_escape(e));
+    let run_flags = run_args.flags();
+
+    // A copy-pasteable reproduce line, rendered against the same engine binary
+    // and flags we actually run.
+    let mut extra = String::new();
+    for f in &run_flags {
+        extra.push(' ');
+        extra.push_str(&shell_escape(f));
     }
-    let reproduce = format!(
-        "{ENGINE} run --rm -v {bind}{env_flags} {image_ref} {}",
+    for e in &env {
+        extra.push_str(" -e ");
+        extra.push_str(&shell_escape(e));
+    }
+    // The reproduce line aggregates untrusted values (image ref, replayed meta,
+    // env); `sanitize` it once so both the verbose print and the `ContainerExit`
+    // error are free of terminal escapes. Shell-escaping stays intact — quotes
+    // aren't control characters.
+    let reproduce = sanitize(&format!(
+        "{} run --rm{extra} -v {bind} {image_ref} {}",
+        args.reproduce_prefix(),
         container_cmd
             .iter()
             .map(|t| shell_escape(t))
             .collect::<Vec<_>>()
             .join(" ")
-    );
+    ));
 
     print.infoln(format!(
-        "Running verifiable build in {image_ref} (mount {bind})"
+        "Running verifiable build in {} (mount {bind})",
+        sanitize(image_ref)
     ));
     if verbose {
         print.infoln(format!("Running: {reproduce}"));
     }
 
-    let mut command = Command::new(ENGINE);
-    command.args(["run", "--rm", "-v", &bind, "-w", "/source"]);
+    let mut command = args.base_command();
+    command.args(["run", "--rm"]);
+    command.args(&run_flags);
+    command.args(["-v", &bind, "-w", "/source"]);
     for e in &env {
         command.args(["-e", e]);
     }
@@ -148,7 +175,7 @@ pub fn run_in_container(
     };
     command.stdout(stdout).stderr(stderr);
 
-    let status = command.status().map_err(Error::DockerInvoke)?;
+    let status = command.status().map_err(|e| args.invoke_error(e))?;
     if !status.success() {
         return Err(Error::ContainerExit {
             status: status.code().unwrap_or(-1).into(),

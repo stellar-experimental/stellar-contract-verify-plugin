@@ -91,11 +91,14 @@ pub enum Error {
     #[error("could not locate the stellar-cli data directory")]
     DataDir,
 
-    #[error("could not run `docker` (is it installed and on PATH?): {0}")]
-    DockerInvoke(std::io::Error),
+    #[error("could not run `{program}` (is it installed and on PATH?): {source}")]
+    EngineInvoke {
+        program: String,
+        source: std::io::Error,
+    },
 
     #[error("failed to pull image {image}")]
-    DockerPull { image: String },
+    PullFailed { image: String },
 
     #[error("the verifiable build failed (container exited with status {status}).\n  reproduce with: {command}")]
     ContainerExit { status: i64, command: String },

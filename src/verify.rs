@@ -11,10 +11,11 @@ use clap::Parser;
 use sha2::{Digest, Sha256};
 
 use crate::container;
+use crate::engine::{ContainerArgs, RunArgs};
 use crate::error::Error;
 use crate::meta::{self, ExtractedMetadata};
 use crate::net;
-use crate::print::Print;
+use crate::print::{sanitize, Print};
 use crate::source;
 use crate::trust::{require_trust, TrustKind};
 
@@ -68,41 +69,56 @@ pub struct Cmd {
     /// Print the container command and stream the rebuild's output.
     #[arg(long, short, global = true)]
     pub verbose: bool,
+
+    #[command(flatten)]
+    pub container_args: ContainerArgs,
+
+    #[command(flatten)]
+    pub run_args: RunArgs,
 }
 
 impl Cmd {
-    pub fn run(&self) -> Result<(), Error> {
+    pub fn run(&mut self) -> Result<(), Error> {
         let print = Print::new(self.quiet);
+
+        // Adopt the CLI's configured default engine when running standalone
+        // without an explicit choice (no-op when launched as a plugin, where the
+        // env var is already inherited).
+        self.container_args.resolve_default_from_cli();
 
         let wasm_bytes = self.fetch_wasm(&print)?;
         let meta = meta::extract_metadata(&wasm_bytes)?;
 
-        print.infoln(format!("Build image: {}", meta.bldimg));
+        // Every value below comes from the (untrusted) WASM or user input, so it
+        // is `sanitize`d before printing to neutralize embedded terminal escapes.
+        print.infoln(format!("Build image: {}", sanitize(&meta.bldimg)));
         // Report the source we'll actually fetch from. When `--source-uri`
         // overrides the recorded value, show the override (and the recorded value
         // it replaces) so the line isn't misleading.
         match (&self.source_uri, &meta.source_uri) {
             (Some(override_uri), Some(recorded)) => {
                 print.infoln(format!(
-                    "Source URI: {override_uri} (overrides recorded {recorded})"
+                    "Source URI: {} (overrides recorded {})",
+                    sanitize(override_uri),
+                    sanitize(recorded)
                 ));
             }
             (Some(override_uri), None) => {
-                print.infoln(format!("Source URI: {override_uri} (override)"));
+                print.infoln(format!("Source URI: {} (override)", sanitize(override_uri)));
             }
             (None, Some(recorded)) => {
-                print.infoln(format!("Source URI: {recorded}"));
+                print.infoln(format!("Source URI: {}", sanitize(recorded)));
             }
             (None, None) => {}
         }
         if let Some(v) = &meta.source_sha256 {
-            print.infoln(format!("Source SHA-256: {v}"));
+            print.infoln(format!("Source SHA-256: {}", sanitize(v)));
         }
 
         if !meta.bldopts.is_empty() {
             print.infoln(format!("Build options ({}):", meta.bldopts.len()));
             for o in &meta.bldopts {
-                print.blankln(format!("  • {o}"));
+                print.blankln(format!("  • {}", sanitize(o)));
             }
         }
 
@@ -153,12 +169,14 @@ impl Cmd {
         wasm_bytes: &[u8],
         print: &Print,
     ) -> Result<(), Error> {
-        container::pull_image(&meta.bldimg, print)?;
+        self.container_args.warn_if_host_ignored(print);
+        container::pull_image(&meta.bldimg, &self.container_args, print)?;
 
         // `--locked` was only added to `contract build` in cli 25.2.0. The
         // recorded bldimg may be older (and still valid), so probe it before
         // forcing `--locked` — passing an unknown flag would fail the rebuild.
-        let supports_locked = container::probe_supports_locked(&meta.bldimg, print);
+        let supports_locked =
+            container::probe_supports_locked(&meta.bldimg, &self.container_args, print);
         let (container_cmd, env) = container::build_container_command(meta, supports_locked);
 
         // SEP-58 requires the source be wrapped in a single top-level directory,
@@ -181,6 +199,8 @@ impl Cmd {
             &source_root,
             &container_cmd,
             &env,
+            &self.container_args,
+            &self.run_args,
             print,
             self.verbose,
         )?;
