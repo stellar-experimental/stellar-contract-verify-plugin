@@ -16,6 +16,11 @@ use crate::error::Error;
 use crate::meta::ExtractedMetadata;
 use crate::print::Print;
 
+/// Prefix for the materialized-source tempdir. `tempfile` appends a random
+/// component, and the build container reuses that whole dir name as its own name
+/// suffix so a running container maps back to its source tree at a glance.
+pub const SOURCE_TEMPDIR_PREFIX: &str = "verify-src-";
+
 /// Container formats we can extract a source tree from. This only concerns how
 /// the tree is packed for transport; the tree itself is always wrapped in a
 /// single top-level directory (SEP-58), which callers check after extraction.
@@ -180,7 +185,7 @@ pub fn materialize_source(
         verify_source_sha256(&bytes, expected)?;
         print.checkln("Source SHA-256 matches");
     }
-    extract_into_hardened_tempdir(&bytes, "verify-src-", format)
+    extract_into_hardened_tempdir(&bytes, SOURCE_TEMPDIR_PREFIX, format)
 }
 
 /// The last path segment of `source`, whether it's a URL or a local path. Try

@@ -187,6 +187,14 @@ impl Cmd {
         // so the build's working tree is that wrapper dir under `workdir`.
         let source_root = source::locate_extracted_source_root(workdir)?;
 
+        // Name the build container after the materialized-source dir (e.g.
+        // `verify-src-B8raT3`), so a running container maps back to its source at
+        // a glance; the tempdir's random suffix also keeps it unique per run.
+        let container_name = workdir.file_name().and_then(|n| n.to_str()).map_or_else(
+            || "stellar-contract-verify".to_string(),
+            |n| format!("stellar-{n}"),
+        );
+
         // Snapshot any WASM artifacts already present before the rebuild; a
         // conformant source archive ships none, so excluding these stops a
         // planted pre-built binary from spoofing a match.
@@ -205,6 +213,7 @@ impl Cmd {
             &env,
             &self.container_args,
             &self.run_args,
+            &container_name,
             print,
             self.verbose,
         )?;

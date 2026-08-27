@@ -109,6 +109,7 @@ pub fn run_in_container(
     env: &[String],
     args: &ContainerArgs,
     run_args: &RunArgs,
+    container_name: &str,
     print: &Print,
     verbose: bool,
 ) -> Result<(), Error> {
@@ -156,15 +157,10 @@ pub fn run_in_container(
         print.infoln(format!("Running: {reproduce}"));
     }
 
-    // Name the container so an interrupt can target it: killing the CLI process
-    // alone leaves the engine still building. A random UUID keeps concurrent
-    // verifies from colliding, and it's kept out of the reproduce line (a fixed
-    // name there would clash on re-run).
-    let container_name = format!("stellar-contract-verify-{}", uuid::Uuid::new_v4());
-    crate::cleanup::set_container(args.kill_argv(&container_name));
+    crate::cleanup::set_container(args.kill_argv(container_name));
 
     let mut command = args.base_command();
-    command.args(["run", "--rm", "--name", &container_name]);
+    command.args(["run", "--rm", "--name", container_name]);
     command.args(&run_flags);
     command.args(["-v", &bind, "-w", "/source"]);
     for e in &env {
