@@ -1,0 +1,40 @@
+[package]
+name = "stellar-contract-verify"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98"
+license = "Apache-2.0"
+description = "Stellar CLI plugin: verify that a contract's WASM reproduces from the SEP-58 build metadata it records."
+repository = "https://github.com/stellar/stellar-contract-verify-plugin"
+publish = false
+
+# The binary name is what the stellar CLI's plugin fallback looks up: running
+# `stellar contract verify …` execs `stellar-contract-verify` from PATH.
+[[bin]]
+name = "stellar-contract-verify"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.1.8", features = ["derive", "env"] }
+stellar-xdr = { version = "27.0.0", features = ["cli"] }
+wasmparser = "0.116.1"
+sha2 = "0.10.7"
+hex = "0.4.3"
+regex = "1.6.0"
+url = "2.5.2"
+walkdir = "2.5.0"
+tempfile = "3.8.1"
+tar = "0.4.46"
+flate2 = "1.0.30"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+reqwest = { version = "0.12.7", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "blocking",
+] }
+shlex = "1.1.0"
+directories = "5.0.1"
+thiserror = "1.0.46"
+
+[dev-dependencies]
+wasm-gen = "0.1.4"
