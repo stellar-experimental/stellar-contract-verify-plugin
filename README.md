@@ -7,7 +7,7 @@
 > time.
 
 A [Stellar CLI plugin](https://developers.stellar.org/docs/tools/cli/plugins)
-that verifies a Soroban contract's WASM reproduces from the build metadata it
+that verifies a Stellar contract's WASM reproduces from the build metadata it
 records, per [SEP-58](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0058.md).
 
 It reads the WASM's `contractmetav0` section, pulls the recorded build image
@@ -88,29 +88,19 @@ unless `--trust` is passed.
 
 ## Installation
 
+Install straight from the git repo with cargo:
+
 ```
-cargo install --path .
-# ensure the resulting stellar-contract-verify is on your PATH
+cargo install --git https://github.com/stellar-experimental/stellar-contract-verify-plugin
 ```
 
-## Status / scope
+Make sure your cargo's bin directory is on your `PATH` so the Stellar CLI can
+find the installed `stellar-contract-verify` binary — then `stellar contract
+verify` just works.
 
-This is an MVP extracted from the Stellar CLI's `contract verify` implementation,
-built as an **isolated** crate (it does not depend on `soroban-cli`). Current
-scope and known gaps:
+Verify it's picked up:
 
-- **In scope:** local `--wasm` and network `--id` / `--wasm-hash` inputs (the
-  latter via `stellar contract fetch`); SEP-58 metadata extraction; trust gating;
-  source materialization (tar.gz / zip, http(s) or local); rebuild via docker or
-  Apple's `container` engine, with `--docker-host` and `--cpus`/`--memory`
-  limits; rebuilt-WASM byte comparison.
-- **Not yet:** build-container interruption cleanup (a rebuild interrupted with
-  Ctrl-C may leave the container running).
-
-### Future direction
-
-The intended evolution is for this plugin to depend on the `soroban-cli` crate
-directly (via a git dependency) and reuse its `verifiable`, `source_archive`, and
-`container` modules instead of reproducing them here — once those modules are
-made `pub` upstream. That keeps the plugin in lockstep with the CLI's build
-machinery. The isolated MVP is the stepping stone.
+```
+stellar plugin ls        # should list `contract-verify`
+stellar contract verify --help
+```

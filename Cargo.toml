@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.98"
 license = "Apache-2.0"
 description = "Stellar CLI plugin: verify that a contract's WASM reproduces from the SEP-58 build metadata it records."
-repository = "https://github.com/stellar/stellar-contract-verify-plugin"
+repository = "https://github.com/stellar-experimental/stellar-contract-verify-plugin"
 publish = false
 
 # The binary name is what the stellar CLI's plugin fallback looks up: running
