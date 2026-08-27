@@ -25,12 +25,17 @@ pub fn source_uri_regex() -> Regex {
     Regex::new(SOURCE_URL_REGEX_STR).unwrap()
 }
 
+pub fn bldarg_regex() -> Regex {
+    Regex::new(BLDARG_REGEX_STR).unwrap()
+}
+
 // These mirror the regex strings used by the CLI's verifiable build. They both
 // drive matching and render back to the user in `Error::MetaFormat`.
 const BLDIMG_REGEX_STR: &str =
     r"^(?:localhost(?::\d+)?|[^\s@/]*[.:][^\s@/]*)/[^\s@]+@sha256:[0-9a-f]{64}$";
 const SOURCE_URL_REGEX_STR: &str = r"^[a-zA-Z][a-zA-Z0-9+.-]*:\S+$";
 const SOURCE_SHA256_REGEX_STR: &str = r"^[0-9a-f]{64}$";
+const BLDARG_REGEX_STR: &str = r"^.+$";
 
 /// Meta keys the rebuild regenerates on its own, so verify must never replay
 /// them — re-passing one would write it twice and break byte-equality. `cliver`
@@ -66,6 +71,7 @@ pub struct ExtractedMetadata {
     pub bldimg: String,
     pub source_uri: Option<String>,
     pub source_sha256: Option<String>,
+    pub bldargs: Vec<String>,
     pub bldopts: Vec<String>,
     pub meta_entries: Vec<(String, String)>,
 }
@@ -150,6 +156,7 @@ pub fn extract_metadata(wasm: &[u8]) -> Result<ExtractedMetadata, Error> {
     let mut bldimg: Option<String> = None;
     let mut source_uri: Option<String> = None;
     let mut source_sha256: Option<String> = None;
+    let mut bldargs: Vec<String> = Vec::new();
     let mut bldopts: Vec<String> = Vec::new();
 
     // Each of these fields must appear at most once. Reject duplicates rather
@@ -173,6 +180,7 @@ pub fn extract_metadata(wasm: &[u8]) -> Result<ExtractedMetadata, Error> {
             "bldimg" => set_once(&mut bldimg, "bldimg", v.clone())?,
             "source_uri" => set_once(&mut source_uri, "source_uri", v.clone())?,
             "source_sha256" => set_once(&mut source_sha256, "source_sha256", v.clone())?,
+            "bldarg" => bldargs.push(v.clone()),
             "bldopt" => bldopts.push(v.clone()),
             _ => {} // user meta: carried in meta_entries for replay
         }
@@ -185,6 +193,16 @@ pub fn extract_metadata(wasm: &[u8]) -> Result<ExtractedMetadata, Error> {
             value: bldimg,
             regex: BLDIMG_REGEX_STR,
         });
+    }
+
+    for arg in &bldargs {
+        if !bldarg_regex().is_match(arg) {
+            return Err(Error::MetaFormat {
+                field: "bldarg",
+                value: arg.clone(),
+                regex: BLDARG_REGEX_STR,
+            });
+        }
     }
 
     if let Some(v) = &source_uri {
@@ -214,6 +232,7 @@ pub fn extract_metadata(wasm: &[u8]) -> Result<ExtractedMetadata, Error> {
         bldimg,
         source_uri,
         source_sha256,
+        bldargs,
         bldopts,
         meta_entries,
     })
@@ -442,6 +461,48 @@ mod tests {
         ]);
         let meta = extract_metadata(&wasm).unwrap();
         assert_eq!(meta.bldimg, good_bldimg());
+    }
+
+    #[test]
+    fn extract_metadata_collects_bldargs_in_order_and_still_replays_them() {
+        let wasm = make_wasm_with_meta(&[
+            ("bldimg", &good_bldimg()),
+            ("source_sha256", &"b".repeat(64)),
+            ("bldarg", "contract"),
+            ("bldarg", "build"),
+            ("bldopt", "--locked"),
+        ]);
+        let meta = extract_metadata(&wasm).unwrap();
+        // Ordered, for driving the command prefix.
+        assert_eq!(
+            meta.bldargs,
+            vec!["contract".to_string(), "build".to_string()]
+        );
+        // And still carried in meta_entries so the rebuilt section matches.
+        let replayed: Vec<&str> = meta
+            .meta_entries
+            .iter()
+            .filter(|(k, _)| k == "bldarg")
+            .map(|(_, v)| v.as_str())
+            .collect();
+        assert_eq!(replayed, vec!["contract", "build"]);
+    }
+
+    #[test]
+    fn extract_metadata_rejects_empty_bldarg() {
+        let wasm = make_wasm_with_meta(&[
+            ("bldimg", &good_bldimg()),
+            ("source_sha256", &"b".repeat(64)),
+            ("bldarg", ""),
+        ]);
+        let err = extract_metadata(&wasm).unwrap_err();
+        assert!(matches!(
+            err,
+            Error::MetaFormat {
+                field: "bldarg",
+                ..
+            }
+        ));
     }
 
     #[test]

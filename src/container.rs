@@ -195,6 +195,16 @@ pub fn run_in_container(
     Ok(())
 }
 
+/// Unescape a recorded `bldarg`/`bldopt` value back to the single raw argv token
+/// it stands for. Each is stored shell-escaped (valid shell on its own), but the
+/// rebuild hands argv straight to `stellar` with no shell, so the quoting must be
+/// stripped or it would leak into the value.
+fn unescape_single(token: &str) -> String {
+    shlex::split(token)
+        .and_then(|mut v| (v.len() == 1).then(|| v.remove(0)))
+        .unwrap_or_else(|| token.to_string())
+}
+
 /// Minimal POSIX shell single-quote escaping for the reproduce line.
 fn shell_escape(token: &str) -> String {
     if !token.is_empty()
@@ -208,8 +218,9 @@ fn shell_escape(token: &str) -> String {
     }
 }
 
-/// Compose the argv we hand to the container's `stellar contract build`, plus
-/// the env vars to apply via docker `-e`.
+/// Compose the argv we hand to the container's `stellar` entrypoint (SEP-58:
+/// `<bldarg…> <bldopt…>`, defaulting to `contract build` when no `bldarg` is
+/// recorded), plus the env vars to apply via docker `-e`.
 ///
 /// The metadata is *replayed*, not reconstructed: every entry the WASM records
 /// (`meta.meta_entries`, already stripped of the keys the rebuild regenerates)
@@ -241,9 +252,7 @@ pub fn build_container_command(
         // `stellar` with no shell, so unescape each bldopt back to the one raw
         // argv token the original build used; otherwise the quoting leaks into
         // the value.
-        let token = shlex::split(o)
-            .and_then(|mut v| (v.len() == 1).then(|| v.remove(0)))
-            .unwrap_or_else(|| o.clone());
+        let token = unescape_single(o);
         if let Some(kv) = token.strip_prefix("--env=") {
             env.push(kv.to_string());
         } else if token.starts_with("--meta=") {
@@ -270,7 +279,15 @@ pub fn build_container_command(
         metadata.push(format!("{k}={v}"));
     }
 
-    let mut args = vec!["contract".to_string(), "build".to_string()];
+    // SEP-58 command reconstruction: `<bldarg…> <bldopt…>`. The recorded `bldarg`
+    // entries (in order) form the argv prefix; when none are recorded the
+    // verifier assumes `contract build`. `bldarg` values are shell-escaped at the
+    // source, so unescape each back to its raw token.
+    let mut args: Vec<String> = if meta.bldargs.is_empty() {
+        vec!["contract".to_string(), "build".to_string()]
+    } else {
+        meta.bldargs.iter().map(|a| unescape_single(a)).collect()
+    };
     args.extend(forwarded);
     args.extend(metadata);
     (args, env)
@@ -391,6 +408,7 @@ mod tests {
             bldimg: good_bldimg(),
             source_uri: Some("https://github.com/foo/bar".to_string()),
             source_sha256: Some("b".repeat(64)),
+            bldargs: Vec::new(),
             bldopts: vec![
                 "--locked".to_string(),
                 "--meta=home_domain=fnando.com".to_string(),
@@ -429,6 +447,7 @@ mod tests {
             bldimg: good_bldimg(),
             source_uri: Some("https://github.com/foo/bar".to_string()),
             source_sha256: Some("b".repeat(64)),
+            bldargs: Vec::new(),
             bldopts: vec![
                 "--meta=source_repo='github:LayerZero-Labs/monorepo-external'".to_string(),
             ],
@@ -467,6 +486,7 @@ mod tests {
             bldimg: good_bldimg(),
             source_uri: Some("https://github.com/foo/bar".to_string()),
             source_sha256: Some("b".repeat(64)),
+            bldargs: Vec::new(),
             bldopts: vec!["--meta=author=alice".to_string()],
             meta_entries: vec![
                 ("author".to_string(), "alice".to_string()),
@@ -487,6 +507,7 @@ mod tests {
             bldimg: good_bldimg(),
             source_uri: Some("https://github.com/foo/bar".to_string()),
             source_sha256: Some("b".repeat(64)),
+            bldargs: Vec::new(),
             bldopts: vec!["--optimize".to_string()],
             meta_entries: vec![("bldopt".to_string(), "--optimize".to_string())],
         };
@@ -497,11 +518,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn build_container_command_defaults_prefix_to_contract_build() {
+        let meta = meta_with_bldopts(vec!["--optimize".to_string()]);
+        let (cmd, _env) = build_container_command(&meta, false);
+        assert_eq!(&cmd[..2], &["contract".to_string(), "build".to_string()]);
+    }
+
+    #[test]
+    fn build_container_command_uses_recorded_bldargs_as_prefix() {
+        let mut meta = meta_with_bldopts(vec!["--locked".to_string()]);
+        // A custom, ordered entry-point argv, with a quoted (escaped) positional.
+        meta.bldargs = vec![
+            "contract".to_string(),
+            "build".to_string(),
+            "'a positional'".to_string(),
+        ];
+        let (cmd, _env) = build_container_command(&meta, false);
+        // Replayed in order, unescaped back to raw argv tokens, ahead of bldopts.
+        assert_eq!(
+            &cmd[..3],
+            &[
+                "contract".to_string(),
+                "build".to_string(),
+                "a positional".to_string()
+            ]
+        );
+        let locked = cmd.iter().position(|a| a == "--locked").unwrap();
+        assert!(locked >= 3, "bldopts must follow bldargs, got {cmd:?}");
+    }
+
     fn meta_with_bldopts(bldopts: Vec<String>) -> ExtractedMetadata {
         ExtractedMetadata {
             bldimg: good_bldimg(),
             source_uri: Some("https://github.com/foo/bar".to_string()),
             source_sha256: Some("b".repeat(64)),
+            bldargs: Vec::new(),
             bldopts,
             meta_entries: Vec::new(),
         }

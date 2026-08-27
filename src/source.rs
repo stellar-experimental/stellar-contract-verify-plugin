@@ -323,6 +323,7 @@ mod tests {
             bldimg: format!("docker.io/stellar/stellar-cli@sha256:{}", "a".repeat(64)),
             source_uri: None,
             source_sha256: Some("f".repeat(64)),
+            bldargs: Vec::new(),
             bldopts: Vec::new(),
             meta_entries: Vec::new(),
         };
