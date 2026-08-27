@@ -30,14 +30,23 @@ stellar-contract-verify --wasm ./my_contract.wasm
 ## Requirements
 
 - `docker` on your `PATH` (the rebuild runs in the recorded, digest-pinned image).
+- The `stellar` CLI on your `PATH` when using `--id` / `--wasm-hash` (the WASM
+  fetch is delegated to `stellar contract fetch`). Not needed for local `--wasm`.
 
 ## Usage
 
+Pass exactly one WASM source: a local `--wasm` file, or a network `--id` /
+`--wasm-hash`.
+
 ```
-stellar-contract-verify [OPTIONS] --wasm <WASM>
+stellar-contract-verify [OPTIONS] (--wasm <WASM> | --id <ID> | --wasm-hash <HASH>)
 
 Options:
       --wasm <WASM>              Local WASM file to verify
+      --id <ID>                  Contract id or alias to fetch the WASM from the network
+      --wasm-hash <HASH>         WASM hash (hex) to fetch the WASM from the network
+  -n, --network <NETWORK>        Named network to fetch from (e.g. testnet); only used
+                                 with --id / --wasm-hash
       --source-uri <SOURCE_URI>  Source archive (http(s) URL or local path) to use
                                  when the WASM records only `source_sha256`, or to
                                  override the recorded `source_uri`
@@ -51,6 +60,13 @@ Options:
 
 On success it prints `Verified: <n> bytes, sha256=<hash>` and exits `0`; on a
 byte mismatch it reports both hashes/sizes and exits non-zero.
+
+### Fetching from the network
+
+`--id` / `--wasm-hash` shell out to `stellar contract fetch --network <name>`,
+so network resolution, aliases, and RPC access all match the CLI you already
+have configured. `--network` is forwarded as-is; if you omit it, the CLI's
+configured default network applies.
 
 ### Trust
 
@@ -72,12 +88,12 @@ This is an MVP extracted from the Stellar CLI's `contract verify` implementation
 built as an **isolated** crate (it does not depend on `soroban-cli`). Current
 scope and known gaps:
 
-- **In scope:** local `--wasm` input; SEP-58 metadata extraction; trust gating;
+- **In scope:** local `--wasm` and network `--id` / `--wasm-hash` inputs (the
+  latter via `stellar contract fetch`); SEP-58 metadata extraction; trust gating;
   source materialization (tar.gz / zip, http(s) or local); rebuild via the
   `docker` CLI; rebuilt-WASM byte comparison.
-- **Not yet:** network inputs `--id` / `--wasm-hash` (fetch the WASM from an RPC);
-  container engines other than `docker` (`--engine`, `--docker-host`, resource
-  limits); build-container interruption cleanup.
+- **Not yet:** container engines other than `docker` (`--engine`, `--docker-host`,
+  resource limits); build-container interruption cleanup.
 
 ### Future direction
 

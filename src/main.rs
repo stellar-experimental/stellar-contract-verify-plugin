@@ -8,6 +8,7 @@ use clap::Parser;
 mod container;
 mod error;
 mod meta;
+mod net;
 mod print;
 mod source;
 mod trust;

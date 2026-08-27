@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::container;
 use crate::error::Error;
 use crate::meta::{self, ExtractedMetadata};
+use crate::net;
 use crate::print::Print;
 use crate::source;
 use crate::trust::{require_trust, TrustKind};
@@ -24,9 +25,24 @@ use crate::trust::{require_trust, TrustKind};
     version
 )]
 pub struct Cmd {
-    /// Local WASM file to verify.
-    #[arg(long)]
-    pub wasm: PathBuf,
+    /// Local WASM file to verify, instead of fetching from the network.
+    #[arg(long, conflicts_with_all = ["contract_id", "wasm_hash"])]
+    pub wasm: Option<PathBuf>,
+
+    /// Contract id (a `C…` strkey) to fetch the WASM from the network via
+    /// `stellar contract fetch`.
+    #[arg(long = "id", env = "STELLAR_CONTRACT_ID", conflicts_with = "wasm_hash")]
+    pub contract_id: Option<String>,
+
+    /// WASM hash (hex) to fetch the WASM from the network via
+    /// `stellar contract fetch`.
+    #[arg(long = "wasm-hash")]
+    pub wasm_hash: Option<String>,
+
+    /// Named network to fetch from (forwarded to `stellar contract fetch`), e.g.
+    /// `testnet`. Only used with `--id` / `--wasm-hash`.
+    #[arg(long, short = 'n', env = "STELLAR_NETWORK")]
+    pub network: Option<String>,
 
     /// Local source code file or http(s) URL to use as the source when the WASM's
     /// recorded SEP-58 metadata has only `source_sha256` (no `source_uri`), or to
@@ -58,8 +74,7 @@ impl Cmd {
     pub fn run(&self) -> Result<(), Error> {
         let print = Print::new(self.quiet);
 
-        let wasm_bytes =
-            std::fs::read(&self.wasm).map_err(|e| Error::ReadWasm(self.wasm.clone(), e))?;
+        let wasm_bytes = self.fetch_wasm(&print)?;
         let meta = meta::extract_metadata(&wasm_bytes)?;
 
         print.infoln(format!("Build image: {}", meta.bldimg));
@@ -198,6 +213,24 @@ impl Cmd {
                 rebuilt_size: rebuilt.len(),
             })
         }
+    }
+
+    /// Obtain the WASM to verify: read a local `--wasm` file, or fetch from the
+    /// network by `--id` / `--wasm-hash` (delegated to `stellar contract fetch`).
+    /// Clap keeps these mutually exclusive, so at most one is set.
+    fn fetch_wasm(&self, print: &Print) -> Result<Vec<u8>, Error> {
+        if let Some(path) = &self.wasm {
+            return std::fs::read(path).map_err(|e| Error::ReadWasm(path.clone(), e));
+        }
+        if self.contract_id.is_some() || self.wasm_hash.is_some() {
+            print.infoln("Fetching WASM from the network via `stellar contract fetch`");
+            return net::fetch_wasm(
+                self.contract_id.as_deref(),
+                self.wasm_hash.as_deref(),
+                self.network.as_deref(),
+            );
+        }
+        Err(Error::MissingInput)
     }
 
     /// The source archive URL we'll actually retrieve from: the cli override if

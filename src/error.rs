@@ -10,6 +10,15 @@ use crate::trust::TrustKind;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("must pass exactly one of --wasm, --id, or --wasm-hash")]
+    MissingInput,
+
+    #[error("could not run `stellar` (is the Stellar CLI installed and on PATH?): {0}")]
+    StellarInvoke(std::io::Error),
+
+    #[error("`stellar contract fetch` failed: {stderr}")]
+    FetchFailed { stderr: String },
+
     #[error("reading wasm {0}: {1}")]
     ReadWasm(PathBuf, std::io::Error),
 
