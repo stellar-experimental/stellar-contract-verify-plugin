@@ -156,8 +156,15 @@ pub fn run_in_container(
         print.infoln(format!("Running: {reproduce}"));
     }
 
+    // Name the container so an interrupt can target it: killing the CLI process
+    // alone leaves the engine still building. A random UUID keeps concurrent
+    // verifies from colliding, and it's kept out of the reproduce line (a fixed
+    // name there would clash on re-run).
+    let container_name = format!("stellar-contract-verify-{}", uuid::Uuid::new_v4());
+    crate::cleanup::set_container(args.kill_argv(&container_name));
+
     let mut command = args.base_command();
-    command.args(["run", "--rm"]);
+    command.args(["run", "--rm", "--name", &container_name]);
     command.args(&run_flags);
     command.args(["-v", &bind, "-w", "/source"]);
     for e in &env {
@@ -176,6 +183,9 @@ pub fn run_in_container(
     command.stdout(stdout).stderr(stderr);
 
     let status = command.status().map_err(|e| args.invoke_error(e))?;
+    // The container has exited (`--rm` removed it); drop the interrupt handle so
+    // a later signal doesn't try to kill a container that's already gone.
+    crate::cleanup::clear_container();
     if !status.success() {
         return Err(Error::ContainerExit {
             status: status.code().unwrap_or(-1).into(),

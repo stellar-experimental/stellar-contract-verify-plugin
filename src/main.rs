@@ -5,6 +5,7 @@
 
 use clap::Parser;
 
+mod cleanup;
 mod container;
 mod engine;
 mod error;
@@ -16,6 +17,10 @@ mod trust;
 mod verify;
 
 fn main() {
+    // Install the interrupt handler before doing any work so a Ctrl-C mid-rebuild
+    // tears down the build container and materialized source.
+    cleanup::install();
+
     let mut cmd = verify::Cmd::parse();
     if let Err(e) = cmd.run() {
         // The error already reads as a full sentence; the ❌ marks it as the

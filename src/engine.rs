@@ -147,6 +147,15 @@ impl ContainerArgs {
         self.prefix_tokens().join(" ")
     }
 
+    /// The argv that force-kills a named container (`kill <name>`), for interrupt
+    /// cleanup. Both docker and Apple's `container` accept `kill <name>`.
+    pub fn kill_argv(&self, name: &str) -> Vec<String> {
+        let mut argv = self.prefix_tokens();
+        argv.push("kill".to_string());
+        argv.push(name.to_string());
+        argv
+    }
+
     /// Warn when `--docker-host`/`DOCKER_HOST` was provided but the selected
     /// engine ignores it.
     pub fn warn_if_host_ignored(&self, print: &Print) {
@@ -266,6 +275,18 @@ mod tests {
         let quiet = Print::new(true);
         args(Some("ssh://host"), Some(Engine::AppleContainer)).warn_if_host_ignored(&quiet);
         args(Some("ssh://host"), None).warn_if_host_ignored(&quiet);
+    }
+
+    #[test]
+    fn kill_argv_includes_host_for_docker_and_omits_for_apple() {
+        assert_eq!(
+            args(Some("ssh://host"), None).kill_argv("build-1"),
+            ["docker", "-H", "ssh://host", "kill", "build-1"]
+        );
+        assert_eq!(
+            args(Some("ssh://host"), Some(Engine::AppleContainer)).kill_argv("build-1"),
+            ["container", "kill", "build-1"]
+        );
     }
 
     #[test]

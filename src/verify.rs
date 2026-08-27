@@ -142,6 +142,10 @@ impl Cmd {
         // bind-mount it. Normally the TempDir cleans up on drop; with `--keep`
         // we persist it (below) so a mismatch can be inspected afterwards.
         let workdir = source::materialize_source(&meta, self.source_uri.as_deref(), &print)?;
+        // Register it for interrupt cleanup: on Ctrl-C the process exits without
+        // running `TempDir`'s `Drop`, so the handler removes it instead (unless
+        // `--keep`).
+        crate::cleanup::set_tempdir(workdir.path().to_path_buf(), self.keep);
         print.checkln(format!(
             "Source materialized at {}",
             workdir.path().display()
