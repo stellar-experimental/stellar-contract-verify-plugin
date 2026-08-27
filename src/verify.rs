@@ -230,8 +230,8 @@ impl Cmd {
         // Compare. The final result is always shown, even under `--quiet`, via a
         // dedicated Print that ignores the quiet flag.
         let result_print = Print::new(false);
-        let original_hash = format!("{:x}", Sha256::digest(wasm_bytes));
-        let rebuilt_hash = format!("{:x}", Sha256::digest(&rebuilt));
+        let original_hash = hex::encode(Sha256::digest(wasm_bytes));
+        let rebuilt_hash = hex::encode(Sha256::digest(&rebuilt));
         if original_hash == rebuilt_hash && wasm_bytes.len() == rebuilt.len() {
             result_print.checkln(format!(
                 "Verified: {} bytes, sha256={original_hash}",

@@ -15,26 +15,26 @@ name = "stellar-contract-verify"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.1.8", features = ["derive", "env"] }
-stellar-xdr = { version = "27.0.0", features = ["cli"] }
-wasmparser = "0.116.1"
-sha2 = "0.10.7"
-hex = "0.4.3"
-regex = "1.6.0"
-url = "2.5.2"
-walkdir = "2.5.0"
-tempfile = "3.8.1"
-tar = "0.4.46"
-flate2 = "1.0.30"
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
-reqwest = { version = "0.12.7", default-features = false, features = [
-    "rustls-tls",
+clap = { version = "4.6", features = ["derive", "env"] }
+stellar-xdr = { version = "28.0.0", features = ["cli"] }
+wasmparser = "0.258"
+sha2 = "0.11"
+hex = "0.4"
+regex = "1.13"
+url = "2.5"
+walkdir = "2.5"
+tempfile = "3.27"
+tar = "0.4"
+flate2 = "1.1"
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
     "http2",
     "blocking",
 ] }
-shlex = "1.1.0"
-thiserror = "1.0.46"
-ctrlc = { version = "3.4", features = ["termination"] }
+shlex = "2.0"
+thiserror = "2.0"
+ctrlc = { version = "3.5", features = ["termination"] }
 
 [dev-dependencies]
 wasm-gen = "0.1.4"

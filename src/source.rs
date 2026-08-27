@@ -246,7 +246,7 @@ fn fetch_source_bytes(source: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn verify_source_sha256(bytes: &[u8], expected: &str) -> Result<(), Error> {
-    let actual = format!("{:x}", Sha256::digest(bytes));
+    let actual = hex::encode(Sha256::digest(bytes));
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn verify_source_sha256_matches() {
         let bytes = b"hello, sep-58";
-        let digest = format!("{:x}", Sha256::digest(bytes));
+        let digest = hex::encode(Sha256::digest(bytes));
         verify_source_sha256(bytes, &digest).unwrap();
         verify_source_sha256(bytes, &digest.to_ascii_uppercase()).unwrap();
     }
