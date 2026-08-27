@@ -7,8 +7,8 @@
 //! identical.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-use directories::ProjectDirs;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -56,22 +56,26 @@ impl ArchiveFormat {
     }
 }
 
-/// The stellar-cli local data directory, resolved the same way the CLI does
-/// (honoring `STELLAR_DATA_HOME`/`XDG_DATA_HOME`). Extractions go under its
-/// `tmp/`, NOT the OS temp dir: on macOS `$TMPDIR` lives under /var/folders,
-/// which container VMs (Docker Desktop, Colima, …) don't share by default, so a
-/// bind mount of it would be empty inside the container. The data dir lives
-/// under the user's home, which is shared.
+/// The stellar-cli local data directory, obtained from the CLI itself via
+/// `stellar cache path` rather than reimplementing its resolution (which honors
+/// `STELLAR_DATA_HOME`/`XDG_DATA_HOME` and the platform default). Extractions go
+/// under its `tmp/`, NOT the OS temp dir: on macOS `$TMPDIR` lives under
+/// /var/folders, which container VMs (Docker Desktop, Colima, …) don't share by
+/// default, so a bind mount of it would be empty inside the container. The data
+/// dir lives under the user's home, which is shared.
 fn data_local_dir() -> Result<PathBuf, Error> {
-    let dir = if let Ok(data_home) = std::env::var("STELLAR_DATA_HOME") {
-        ProjectDirs::from_path(PathBuf::from(data_home))
-    } else if let Ok(data_home) = std::env::var("XDG_DATA_HOME") {
-        ProjectDirs::from_path(PathBuf::from(data_home).join("stellar-cli"))
-    } else {
-        ProjectDirs::from("org", "stellar", "stellar-cli")
-    };
-    dir.map(|d| d.data_local_dir().to_path_buf())
-        .ok_or(Error::DataDir)
+    let output = Command::new("stellar")
+        .args(["cache", "path"])
+        .output()
+        .map_err(Error::StellarInvoke)?;
+    if !output.status.success() {
+        return Err(Error::DataDir);
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        return Err(Error::DataDir);
+    }
+    Ok(PathBuf::from(path))
 }
 
 /// Decompress gzip and unpack the tar into `dest`. Entries are `source/…`, so

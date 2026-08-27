@@ -37,8 +37,9 @@ stellar-contract-verify --wasm ./my_contract.wasm
 
 - A container engine on your `PATH` — `docker` (default) or Apple's `container`
   CLI (`--engine apple-container`) — to run the recorded, digest-pinned image.
-- The `stellar` CLI on your `PATH` when using `--id` / `--wasm-hash` (the WASM
-  fetch is delegated to `stellar contract fetch`). Not needed for local `--wasm`.
+- The `stellar` CLI on your `PATH`: it's used to resolve the data directory
+  (`stellar cache path`) and, with `--id` / `--wasm-hash`, to fetch the WASM
+  (`stellar contract fetch`).
 
 ## Usage
 
