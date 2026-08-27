@@ -1,9 +1,9 @@
 //! The `stellar contract verify` command, as a standalone plugin.
 //!
 //! Orchestration ported from the CLI's `contract verify` (`run` +
-//! `rebuild_and_verify`), scoped to the isolated MVP: input is a local `--wasm`
-//! file (network `--id`/`--wasm-hash` fetch is deferred), and the rebuild runs
-//! through the `docker` CLI.
+//! `rebuild_and_verify`): the WASM comes from a local `--wasm` file or the
+//! network (`--id`/`--wasm-hash`, via `stellar contract fetch`), and the rebuild
+//! runs through the selected container engine (docker or Apple's `container`).
 
 use std::path::{Path, PathBuf};
 
