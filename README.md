@@ -23,10 +23,6 @@ Stellar CLI's plugin fallback runs it whenever you invoke:
 stellar contract verify --wasm ./my_contract.wasm
 ```
 
-(The CLI joins the leading subcommand words with `-` to find
-`stellar-contract-verify`. This path is reached only when `verify` is not a
-built-in `contract` subcommand.)
-
 You can also run it directly:
 
 ```
